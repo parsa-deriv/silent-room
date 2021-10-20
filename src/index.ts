@@ -4,6 +4,7 @@ import { body, validationResult } from "express-validator";
 import { Room } from "./models/room";
 import { RequestValidationError } from "./errors/request_validation_error";
 import { errorHandler } from "./middlewares/error_handler";
+import { TimeSlot } from "./models/time_slot";
 
 const app = express();
 app.use(express.json());
@@ -18,26 +19,53 @@ app.post(
   "/rooms",
   [body("name").notEmpty(), body("capacity").isNumeric().notEmpty()],
   (req: Request, res: Response) => {
-    console.log("dfdsfsd");
     if (!validationResult(req).isEmpty()) {
       throw new RequestValidationError("Some fields are missing", 401);
     }
-    console.log("Passed errors");
+
     let newRoom = new Room(req.body.name, req.body.capacity);
     rooms.push(newRoom);
     res.status(201).json({ result: true, room: newRoom });
-    console.log("Sent room");
   }
 );
 
 app.post(
   "/reserve",
   [
-    body("id").notEmpty(),
+    body("roomId").notEmpty(),
     body("from").notEmpty().isISO8601(),
     body("to").notEmpty().isISO8601(),
   ],
-  (req: Request, res: Response) => {}
+  (req: Request, res: Response) => {
+    if (!validationResult(req).isEmpty()) {
+      throw new RequestValidationError("Some fields are missing", 401);
+    }
+
+    const roomId = req.body.roomId;
+    const slot = new TimeSlot(
+      new Date(Date.parse(req.body.from)),
+      new Date(Date.parse(req.body.to))
+    );
+
+    if (slot.end <= slot.start) {
+      throw new RequestValidationError("Provided times are not matching.", 401);
+    }
+
+    const room = rooms.find((r) => {
+      return r.id == roomId;
+    });
+
+    if (!room) {
+      return res.status(404).send("No room with the provided id");
+    }
+
+    if (!room.canReserve(slot)) {
+      throw new RequestValidationError("Time overlap.", 401);
+    }
+    room.reserve(slot);
+
+    res.send({ room });
+  }
 );
 
 app.use(errorHandler);
